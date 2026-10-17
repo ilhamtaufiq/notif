@@ -1,0 +1,31 @@
+# Deploy on Coolify: New Resource -> Docker Compose (this repo), then attach your domain to the
+# `web` service on port 80 and set ADMIN_PASSWORD / JWT_SECRET in the environment variables.
+# Phone app server URL = that same domain (https://notif.example.com).
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - notif-data:/data
+
+  web:
+    build:
+      context: ./web
+      args:
+        PUBLIC_API_URL: ""
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      BACKEND_URL: http://backend:8080
+    expose:
+      - "80"
+
+volumes:
+  notif-data:

@@ -1,0 +1,24 @@
+{
+  "name": "NotifListener",
+  "displayName": "NotifListener",
+  "expo": {
+    "name": "Notif Listener",
+    "slug": "notif-listener",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "android": {
+      "package": "com.notiflistener"
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "./plugins/with-sound-assets"
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+# secrets / local data
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+
+# build output and dependencies
+node_modules/
+target/
+dist/
+.astro/
+
+# crash dumps from the shell
+*.stackdump
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
