@@ -17,6 +17,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('Transactions');
   const [devices, setDevices] = useState<Device[]>([]);
   const [loadedAt, setLoadedAt] = useState(() => Date.now());
+  // Incoming notifications not yet seen in the Log tab (the Log tab only listens while it is open).
+  const [unread, setUnread] = useState(0);
 
   const logout = useCallback(() => {
     setToken(null);
@@ -41,6 +43,18 @@ export default function App() {
     return () => clearInterval(t);
   }, [authed, loadDevices]);
 
+  useEffect(() => {
+    if (!authed) return;
+    const es = new EventSource(api.streamUrl());
+    es.addEventListener('notification', () => setUnread((n) => n + 1));
+    return () => es.close();
+  }, [authed]);
+
+  // Viewing the Log tab clears the badge, including for notifications that arrive while it is open.
+  useEffect(() => {
+    if (tab === 'Log') setUnread(0);
+  }, [tab, unread]);
+
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
   return (
@@ -50,7 +64,7 @@ export default function App() {
         <nav className="seg">
           {TABS.map((t) => (
             <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-              {t}
+              {t === 'Log' && unread > 0 ? `${t} (${unread} baru)` : t}
             </button>
           ))}
         </nav>

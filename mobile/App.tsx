@@ -19,6 +19,9 @@ import { flush, pendingCount, sendHeartbeat, testConnection } from './src/sync';
 
 type Permission = 'unknown' | 'authorized' | 'denied';
 
+// How often queued notifications are retried while the app is open.
+const QUEUE_RETRY_MS = 60_000;
+
 export default function App() {
   const [serverUrl, setServerUrl] = useState('');
   const [deviceKey, setDeviceKey] = useState('');
@@ -36,6 +39,12 @@ export default function App() {
     setPending(await pendingCount());
   }, []);
 
+  // Sends whatever is queued, then refreshes the screen. flush() is serialised, so overlapping calls are safe.
+  const syncQueue = useCallback(async () => {
+    await flush().catch(() => 0);
+    await refresh();
+  }, [refresh]);
+
   useEffect(() => {
     loadConfig().then(c => {
       setServerUrl(c.serverUrl);
@@ -44,17 +53,22 @@ export default function App() {
       setAllowedApps(c.allowedApps);
       setSoundEnabled(c.soundEnabled);
     });
-    refresh();
+    syncQueue();
     sendHeartbeat().catch(() => {});
+    // Notifications queued while the server was unreachable are retried here, not only when a new one arrives.
+    const timer = setInterval(syncQueue, QUEUE_RETRY_MS);
     // The user comes back from the system settings screen / a notification arrived meanwhile.
     const sub = AppState.addEventListener('change', s => {
       if (s === 'active') {
-        refresh();
+        syncQueue();
         sendHeartbeat().catch(() => {});
       }
     });
-    return () => sub.remove();
-  }, [refresh]);
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, [syncQueue]);
 
   async function saveAndTest() {
     setBusy(true);
