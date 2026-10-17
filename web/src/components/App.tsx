@@ -4,6 +4,7 @@ import Login from './Login';
 import Overview from './Overview';
 import Transactions from './Transactions';
 import Invoices from './Invoices';
+import ListenerStatus from './ListenerStatus';
 import Notifications from './Notifications';
 import Devices from './Devices';
 import '../styles/global.css';
@@ -15,6 +16,7 @@ export default function App() {
   const [authed, setAuthed] = useState(() => !!getToken());
   const [tab, setTab] = useState<Tab>('Transactions');
   const [devices, setDevices] = useState<Device[]>([]);
+  const [loadedAt, setLoadedAt] = useState(() => Date.now());
 
   const logout = useCallback(() => {
     setToken(null);
@@ -24,12 +26,19 @@ export default function App() {
   const loadDevices = useCallback(() => {
     api
       .devices()
-      .then(setDevices)
+      .then((list) => {
+        setDevices(list);
+        setLoadedAt(Date.now());
+      })
       .catch((e) => e instanceof UnauthorizedError && logout());
   }, [logout]);
 
   useEffect(() => {
-    if (authed) loadDevices();
+    if (!authed) return;
+    loadDevices();
+    // keep the listener health banner current
+    const t = setInterval(loadDevices, 60_000);
+    return () => clearInterval(t);
   }, [authed, loadDevices]);
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
@@ -47,6 +56,7 @@ export default function App() {
         </nav>
         <button onClick={logout}>Sign out</button>
       </header>
+      <ListenerStatus devices={devices} loadedAt={loadedAt} />
       <main>
         {tab === 'Transactions' && <Transactions />}
         {tab === 'Invoices' && <Invoices />}

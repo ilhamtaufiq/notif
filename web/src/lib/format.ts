@@ -18,6 +18,56 @@ export function dayRange(from?: string, to?: string): { from?: number; to?: numb
   return out;
 }
 
+export type DeviceStatus = 'active' | 'idle' | 'offline' | 'never';
+
+const ACTIVE_MS = 15 * 60_000; // heartbeats come at most every 5 minutes
+const IDLE_MS = 3 * 3_600_000;
+
+/** How alive a phone's listener looks, from the age (ms) of its last contact; null = never seen. */
+export function statusFromAge(age: number | null): DeviceStatus {
+  if (age == null) return 'never';
+  if (age < ACTIVE_MS) return 'active';
+  return age < IDLE_MS ? 'idle' : 'offline';
+}
+
+export function deviceStatus(lastSeen: number | null, now: number): DeviceStatus {
+  return statusFromAge(lastSeen == null ? null : now - lastSeen);
+}
+
+/** Age in ms of `lastSeen`, using the server's clock reading plus the time elapsed since it was fetched. */
+export function lastSeenAge(
+  d: { last_seen: number | null; server_now?: number },
+  loadedAt: number,
+  now: number,
+): number | null {
+  if (d.last_seen == null) return null;
+  const serverNow = (d.server_now ?? loadedAt) + (now - loadedAt);
+  return Math.max(0, serverNow - d.last_seen);
+}
+
+/** The healthiest status among all devices: a single live phone is enough. */
+export function bestStatus(
+  devices: { last_seen: number | null; server_now?: number }[],
+  loadedAt: number,
+  now: number,
+): DeviceStatus | 'none' {
+  if (devices.length === 0) return 'none';
+  const order: DeviceStatus[] = ['active', 'idle', 'offline', 'never'];
+  let best = 3;
+  for (const d of devices) {
+    best = Math.min(best, order.indexOf(statusFromAge(lastSeenAge(d, loadedAt, now))));
+  }
+  return order[best];
+}
+
+export function formatAge(ms: number): string {
+  const m = Math.round(ms / 60_000);
+  if (m < 1) return 'baru saja';
+  if (m < 60) return `${m} menit lalu`;
+  const h = Math.round(m / 60);
+  return h < 48 ? `${h} jam lalu` : `${Math.round(h / 24)} hari lalu`;
+}
+
 export type PaymentFilter = '' | 'yes' | 'no';
 
 /**

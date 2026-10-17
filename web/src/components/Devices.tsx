@@ -1,5 +1,18 @@
 import { useState } from 'react';
 import { API, api, fmtAgo, fmtTime, type Device } from '../lib/api';
+import { lastSeenAge, statusFromAge, type DeviceStatus } from '../lib/format';
+
+const STATUS_LABEL: Record<DeviceStatus, string> = {
+  active: 'Aktif',
+  idle: 'Diam',
+  offline: 'Terputus',
+  never: 'Belum pernah',
+};
+
+const statusOf = (d: Device): DeviceStatus => {
+  const now = Date.now();
+  return statusFromAge(lastSeenAge(d, now, now));
+};
 
 export default function Devices({
   devices,
@@ -74,7 +87,8 @@ export default function Devices({
         {devices.map((d) => (
           <div key={d.id} className="row">
             <div>
-              <b>{d.name}</b>
+              <b>{d.name}</b>{' '}
+              <span className={`badge dev-${statusOf(d)}`}>{STATUS_LABEL[statusOf(d)]}</span>
               <div className="muted">
                 {d.notif_count.toLocaleString()} notifications · last seen {fmtAgo(d.last_seen)} ·
                 added {fmtTime(d.created_at)}

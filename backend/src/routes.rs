@@ -51,9 +51,11 @@ pub async fn login(
 pub async fn list_devices(_: AuthUser, State(st): State<AppState>) -> ApiResult<Json<Vec<Device>>> {
     let rows = sqlx::query_as::<_, Device>(
         "SELECT d.id, d.name, d.created_at, d.last_seen,
-                (SELECT COUNT(*) FROM notifications n WHERE n.device_id = d.id) AS notif_count
+                (SELECT COUNT(*) FROM notifications n WHERE n.device_id = d.id) AS notif_count,
+                ? AS server_now
          FROM devices d ORDER BY d.created_at DESC",
     )
+    .bind(now_ms())
     .fetch_all(&st.db)
     .await
     .map_err(internal)?;
@@ -112,6 +114,23 @@ pub async fn delete_device(
         return Err(StatusCode::NOT_FOUND);
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------- heartbeat (mobile -> server) ----------
+
+/// Lightweight "the listener is alive" signal; updates the device's `last_seen`.
+pub async fn heartbeat(
+    DeviceAuth(device_id): DeviceAuth,
+    State(st): State<AppState>,
+) -> ApiResult<Json<Value>> {
+    let now = now_ms();
+    sqlx::query("UPDATE devices SET last_seen = ? WHERE id = ?")
+        .bind(now)
+        .bind(&device_id)
+        .execute(&st.db)
+        .await
+        .map_err(internal)?;
+    Ok(Json(json!({ "ok": true, "server_time": now })))
 }
 
 // ---------- ingest (mobile -> server) ----------

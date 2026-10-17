@@ -114,6 +114,14 @@ pre.raw { background: var(--bg); border: 1px solid var(--border); border-radius:
 .badge.status-paid { color: var(--accent-2); border-color: var(--accent-2); font-weight: 600; }
 .badge.status-expired, .badge.status-cancelled { color: var(--muted); }
 textarea { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px; width: 100%; margin: 6px 0; }
+.banner { margin: 0 0 14px; padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; border: 1px solid var(--border); }
+.banner.ok { color: var(--accent-2); border-color: var(--accent-2); }
+.banner.warn { color: #b7791f; border-color: #b7791f; }
+.banner.bad { color: var(--danger); border-color: var(--danger); font-weight: 600; }
+.banner.info { color: var(--muted); }
+.badge.dev-active { color: var(--accent-2); border-color: var(--accent-2); }
+.badge.dev-idle { color: #b7791f; border-color: #b7791f; }
+.badge.dev-offline, .badge.dev-never { color: var(--danger); border-color: var(--danger); }
 .field { display: flex; flex-direction: column; gap: 3px; font-size: 0.8rem; color: var(--muted); }
 .big-check { font-size: 1.2rem; font-weight: 600; margin: 4px 0 8px; }
 .row.head { background: var(--bg); }

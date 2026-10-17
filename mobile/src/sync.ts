@@ -54,6 +54,39 @@ export async function testConnection(cfg: Connection): Promise<string | null> {
   }
 }
 
+const HEARTBEAT_EVERY_MS = 5 * 60 * 1000;
+let lastBeatAt = 0;
+
+/** Tells the server this phone's listener is alive. Resolves to whether the server acknowledged it. */
+export async function sendHeartbeat(): Promise<boolean> {
+  const cfg = await loadConfig();
+  if (!cfg.serverUrl || !cfg.deviceKey) return false;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(`${cfg.serverUrl}/api/heartbeat`, {
+      method: 'POST',
+      headers: { 'X-Device-Key': cfg.deviceKey },
+      signal: ctrl.signal,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Fire-and-forget heartbeat, at most once every 5 minutes. Called for every notification the
+ * listener sees (even ones it filters out), so the dashboard can tell the listener is still running.
+ */
+export function maybeHeartbeat(now: number = Date.now()): void {
+  if (now - lastBeatAt < HEARTBEAT_EVERY_MS) return;
+  lastBeatAt = now;
+  sendHeartbeat().catch(() => {});
+}
+
 export function enqueue(n: OutgoingNotification): Promise<void> {
   return exclusive(async () => {
     const q = await loadQueue();

@@ -1,7 +1,7 @@
 import { loadConfig } from './storage';
 import { isGopayApp, parsePayment } from './payment';
 import { playPaymentSound } from './sound';
-import { enqueue, flush } from './sync';
+import { enqueue, flush, maybeHeartbeat } from './sync';
 
 // Package of this app; its own foreground notifications would just be noise.
 const OWN_PACKAGE = 'com.notiflistener';
@@ -63,6 +63,9 @@ export default async function headlessNotificationListener({
   }
   const pkg = raw.app ?? '';
   if (!pkg || pkg === OWN_PACKAGE) return;
+
+  // Proof of life for the dashboard, even if this notification is filtered out below.
+  maybeHeartbeat();
 
   const cfg = await loadConfig();
   const allowedName = cfg.allowedApps[pkg];

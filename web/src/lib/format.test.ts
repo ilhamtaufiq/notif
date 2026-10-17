@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Payment } from './api';
 import {
+  bestStatus,
   dayRange,
+  deviceStatus,
+  formatAge,
   formatRupiah,
+  lastSeenAge,
+  statusFromAge,
   mergeLivePayment,
   parseAmountInput,
   parserVerdict,
@@ -64,6 +69,50 @@ describe('dayRange', () => {
   it('leaves open ends undefined', () => {
     expect(dayRange()).toEqual({});
     expect(dayRange('2026-10-18').to).toBeUndefined();
+  });
+});
+
+describe('device health', () => {
+  const MIN = 60_000;
+  const NOW = 1_800_000_000_000;
+
+  it.each([
+    [null, 'never'],
+    [2 * MIN, 'active'],
+    [14 * MIN, 'active'],
+    [16 * MIN, 'idle'],
+    [179 * MIN, 'idle'],
+    [181 * MIN, 'offline'],
+    [3 * 24 * 60 * MIN, 'offline'],
+  ])('age %s -> %s', (age, expected) => {
+    expect(statusFromAge(age as number | null)).toBe(expected);
+    expect(deviceStatus(age == null ? null : NOW - age, NOW)).toBe(expected);
+  });
+
+  it('measures age against the server clock, not the browser clock', () => {
+    // browser clock is 1 hour ahead of the server: server says the phone was seen 2 min ago
+    const loadedAt = NOW + 60 * MIN;
+    const d = { last_seen: NOW - 2 * MIN, server_now: NOW };
+    expect(lastSeenAge(d, loadedAt, loadedAt)).toBe(2 * MIN);
+    // 5 minutes later in the browser, the phone is 7 minutes old
+    expect(lastSeenAge(d, loadedAt, loadedAt + 5 * MIN)).toBe(7 * MIN);
+    expect(lastSeenAge({ last_seen: null, server_now: NOW }, loadedAt, loadedAt)).toBeNull();
+  });
+
+  it('bestStatus: one live phone is enough', () => {
+    const live = { last_seen: NOW - MIN, server_now: NOW };
+    const dead = { last_seen: NOW - 9 * 60 * MIN, server_now: NOW };
+    expect(bestStatus([], NOW, NOW)).toBe('none');
+    expect(bestStatus([dead, live], NOW, NOW)).toBe('active');
+    expect(bestStatus([dead], NOW, NOW)).toBe('offline');
+    expect(bestStatus([{ last_seen: null }], NOW, NOW)).toBe('never');
+  });
+
+  it('formatAge in Indonesian', () => {
+    expect(formatAge(20_000)).toBe('baru saja');
+    expect(formatAge(5 * MIN)).toBe('5 menit lalu');
+    expect(formatAge(3 * 60 * MIN)).toBe('3 jam lalu');
+    expect(formatAge(72 * 60 * MIN)).toBe('3 hari lalu');
   });
 });
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   AppState,
+  Linking,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -14,7 +15,7 @@ import RNAndroidNotificationListener from 'react-native-android-notification-lis
 import AppPicker from './src/AppPicker';
 import { loadConfig, updateConfig, type FilterMode } from './src/storage';
 import { playPaymentSound } from './src/sound';
-import { flush, pendingCount, testConnection } from './src/sync';
+import { flush, pendingCount, sendHeartbeat, testConnection } from './src/sync';
 
 type Permission = 'unknown' | 'authorized' | 'denied';
 
@@ -44,11 +45,14 @@ export default function App() {
       setSoundEnabled(c.soundEnabled);
     });
     refresh();
+    sendHeartbeat().catch(() => {});
     // The user comes back from the system settings screen / a notification arrived meanwhile.
-    const sub = AppState.addEventListener(
-      'change',
-      s => s === 'active' && refresh(),
-    );
+    const sub = AppState.addEventListener('change', s => {
+      if (s === 'active') {
+        refresh();
+        sendHeartbeat().catch(() => {});
+      }
+    });
     return () => sub.remove();
   }, [refresh]);
 
@@ -94,6 +98,16 @@ export default function App() {
   async function toggleSound(on: boolean) {
     setSoundEnabled(on);
     await updateConfig({ soundEnabled: on });
+  }
+
+  async function openBatterySettings() {
+    try {
+      await Linking.sendIntent(
+        'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS',
+      );
+    } catch {
+      await Linking.openSettings();
+    }
   }
 
   async function saveApps(apps: Record<string, string>) {
@@ -167,9 +181,13 @@ export default function App() {
             </Pressable>
           )}
           <Text style={s.muted}>
-            Tip: exclude this app from battery optimisation so Android keeps the
-            listener alive.
+            Keep the listener alive: set this app to "Don't optimise" /
+            "Unrestricted" battery. On Xiaomi, Oppo, Vivo and Samsung also
+            enable Autostart and lock the app in the recent-apps screen.
           </Text>
+          <Pressable style={[s.btn, s.secondary]} onPress={openBatterySettings}>
+            <Text style={s.btnTextDark}>Open battery settings</Text>
+          </Pressable>
         </View>
 
         <View style={s.card}>

@@ -56,6 +56,18 @@ The app is meant to watch **QRIS static** payments received in **GoPay Merchant*
   browser; the **Suara pembayaran** switch turns this on/off (remembered per browser; browsers only allow sound
   after you have clicked on the page once). Matching an expected amount is not implemented yet.
 
+### Listener health (is the phone still listening?)
+Payments are only seen while the phone's listener is running, so the dashboard shows a banner on every tab and a
+status chip per device (Devices tab):
+- **Aktif** - heard from in the last 15 min (green) / **Diam** - quiet up to 3 h (amber, may just be a quiet phone) /
+  **Terputus** or **Belum pernah** - longer or never (red: payments may be missed).
+- "Heard from" = any notification batch or a **heartbeat** (`POST /api/heartbeat`, at most once per 5 min). The phone
+  sends one when the app opens and for *every* notification the listener sees, even ones its app filter drops.
+- Limit: without a native background service, a phone that receives no notifications at all and is never opened sends
+  no heartbeat, so a very quiet but healthy phone can show amber. Keep a chat app on it, or open the app now and then.
+- The mobile app has an **Open battery settings** button. Set the app to "Don't optimise"/"Unrestricted"; on
+  Xiaomi/Oppo/Vivo/Samsung also enable Autostart and lock the app in the recents screen.
+
 ### Invoices tab (QRIS with a locked amount, settled automatically)
 1. **Upload your static QRIS** (a photo/screenshot of the QR on your shop sticker, or paste its text). The browser
    reads it, checks it is a valid *static* QRIS (CRC) and saves it on the server.

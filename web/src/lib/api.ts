@@ -33,8 +33,11 @@ export interface Device {
   id: string;
   name: string;
   created_at: number;
+  /** Last contact from the phone (notification batch or heartbeat), epoch ms. */
   last_seen: number | null;
   notif_count: number;
+  /** Server clock when the list was produced; lets us judge last_seen without clock skew. */
+  server_now?: number;
 }
 
 export interface AppCount {

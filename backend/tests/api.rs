@@ -270,6 +270,41 @@ fn static_qris() -> String {
 }
 
 #[tokio::test]
+async fn heartbeat_marks_the_device_alive_without_any_notification() {
+    let ctx = Ctx::new().await;
+    let (_, before) = ctx.get("/api/devices").await;
+    assert!(before[0]["last_seen"].is_null());
+    assert!(before[0]["server_now"].as_i64().unwrap() > 0);
+
+    let (status, res) = call(&ctx.app, "POST", "/api/heartbeat", &[("x-device-key", &ctx.device_key)], None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(res["ok"], true);
+
+    let (_, after) = ctx.get("/api/devices").await;
+    let seen = after[0]["last_seen"].as_i64().unwrap();
+    assert!((after[0]["server_now"].as_i64().unwrap() - seen).abs() < 5_000);
+    assert_eq!(after[0]["notif_count"], 0);
+}
+
+#[tokio::test]
+async fn heartbeat_needs_a_valid_device_key() {
+    let ctx = Ctx::new().await;
+    let (none, _) = call(&ctx.app, "POST", "/api/heartbeat", &[], None).await;
+    let (bad, _) = call(&ctx.app, "POST", "/api/heartbeat", &[("x-device-key", "nl_wrong")], None).await;
+    // a dashboard token is not a device key
+    let (jwt, _) = call(&ctx.app, "POST", "/api/heartbeat", &[("authorization", &ctx.bearer)], None).await;
+    assert_eq!((none, bad, jwt), (StatusCode::UNAUTHORIZED, StatusCode::UNAUTHORIZED, StatusCode::UNAUTHORIZED));
+}
+
+#[tokio::test]
+async fn ingest_also_refreshes_last_seen() {
+    let ctx = Ctx::new().await;
+    ctx.ingest(vec![]).await;
+    let (_, devices) = ctx.get("/api/devices").await;
+    assert!(devices[0]["last_seen"].is_i64());
+}
+
+#[tokio::test]
 async fn qris_upload_is_validated_stored_and_removable() {
     let ctx = Ctx::new().await;
     let (_, empty) = ctx.get("/api/settings/qris").await;

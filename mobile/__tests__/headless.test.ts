@@ -1,12 +1,13 @@
 import headless from '../src/headless';
 import { loadConfig } from '../src/storage';
-import { enqueue, flush } from '../src/sync';
+import { enqueue, flush, maybeHeartbeat } from '../src/sync';
 import { playPaymentSound } from '../src/sound';
 
 jest.mock('../src/storage', () => ({ loadConfig: jest.fn() }));
 jest.mock('../src/sync', () => ({
   enqueue: jest.fn().mockResolvedValue(undefined),
   flush: jest.fn().mockResolvedValue(0),
+  maybeHeartbeat: jest.fn(),
 }));
 jest.mock('../src/sound', () => ({
   playPaymentSound: jest.fn().mockResolvedValue(undefined),
@@ -112,6 +113,28 @@ describe('headless notification handler', () => {
       'GoPay Merchant',
     );
     expect(playPaymentSound).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a heartbeat for notifications it processes', async () => {
+    await send({});
+    expect(maybeHeartbeat).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reports a heartbeat for notifications the app filter drops', async () => {
+    mockConfig({
+      filterMode: 'selected',
+      allowedApps: { 'com.whatsapp': 'WhatsApp' },
+    });
+    await send({});
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(maybeHeartbeat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not count its own notifications or garbage as proof of life', async () => {
+    await send({ app: 'com.notiflistener' });
+    await headless({ notification: 'not json' });
+    await headless({});
+    expect(maybeHeartbeat).not.toHaveBeenCalled();
   });
 
   it('ignores its own notifications, empty ones and malformed payloads', async () => {

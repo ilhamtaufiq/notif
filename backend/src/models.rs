@@ -6,8 +6,11 @@ pub struct Device {
     pub id: String,
     pub name: String,
     pub created_at: i64,
+    /// Last time the phone contacted the server (notification batch or heartbeat), epoch ms.
     pub last_seen: Option<i64>,
     pub notif_count: i64,
+    /// Server clock when this list was produced, so clients can judge `last_seen` without clock skew.
+    pub server_now: i64,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]

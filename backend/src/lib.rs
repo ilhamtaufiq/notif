@@ -113,6 +113,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/devices", get(routes::list_devices).post(routes::create_device))
         .route("/api/devices/:id", delete(routes::delete_device))
         .route("/api/ingest", post(routes::ingest))
+        .route("/api/heartbeat", post(routes::heartbeat))
         .route("/api/notifications", get(routes::list_notifications))
         .route("/api/payments", get(routes::list_payments))
         .route("/api/payments/summary", get(routes::payment_summary))
