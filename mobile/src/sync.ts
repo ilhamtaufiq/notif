@@ -16,11 +16,17 @@ const exclusive = <T>(fn: () => Promise<T>): Promise<T> => {
   return next;
 };
 
-async function post(cfg: Connection, batch: OutgoingNotification[]): Promise<boolean> {
+async function post(
+  cfg: Connection,
+  batch: OutgoingNotification[],
+): Promise<boolean> {
   try {
     const res = await fetch(`${cfg.serverUrl}/api/ingest`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Device-Key': cfg.deviceKey },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Device-Key': cfg.deviceKey,
+      },
       body: JSON.stringify({ notifications: batch }),
     });
     return res.ok;
@@ -34,7 +40,10 @@ export async function testConnection(cfg: Connection): Promise<string | null> {
   try {
     const res = await fetch(`${cfg.serverUrl}/api/ingest`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Device-Key': cfg.deviceKey },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Device-Key': cfg.deviceKey,
+      },
       body: JSON.stringify({ notifications: [] }),
     });
     if (res.status === 401) return 'Device key rejected by the server.';

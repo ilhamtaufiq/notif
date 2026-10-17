@@ -32,7 +32,7 @@ The API URL defaults to `http://<current-host>:8080`; override with `PUBLIC_API_
 
 ### 3. Pair a phone
 1. Sign in on the web, open **Devices**, add a device. Copy the key (shown once).
-2. Build the app: `cd mobile && npm install --legacy-peer-deps && npx react-native run-android`
+2. Build the app: `cd mobile && npm install && npm run expo:run` (or build an APK with EAS, see below)
    (needs Android Studio / SDK and a device on the same network).
 3. In the app enter `http://<your-pc-lan-ip>:8080` and the device key, tap **Save & test**.
 4. Tap **Open notification access settings** and enable Notif Listener.
@@ -113,14 +113,20 @@ The app uses native modules, so **Expo Go does not work**; use a dev build or an
 
 | Option | Command (in `mobile/`) |
 |--------|------------------------|
-| React Native CLI (Android Studio) | `npx react-native run-android` |
+| Android Studio / CLI | `npm run expo:prebuild` once, then `npx react-native run-android` |
 | Expo, local build | `npm run expo:run` (prebuild + install on device/emulator; needs Android SDK) |
 | Expo EAS, cloud APK | `npx eas login` then `npm run eas:apk` (no local Android SDK needed) |
 | Expo EAS, local APK | `npm run eas:local` |
 
 `app.json` (`expo` key), `eas.json` and the `expo-build-properties` plugin (allows cleartext HTTP for LAN use)
-are already configured. `npm run expo:prebuild` regenerates `android/` from `app.json`
-(`--clean` overwrites the committed `android/`). Always install with `--legacy-peer-deps`.
+are already configured. The `android/` folder is **generated** from `app.json` by `expo prebuild`
+(it is git-ignored; EAS Build runs prebuild by itself). A plain React Native `android/` folder will not build with
+Expo SDK 58 (`:expo ... compileSdk` / `expo-module-gradle-plugin not found`), so do not commit one.
+`mobile/.npmrc` sets `legacy-peer-deps=true` (needed locally and on EAS, because the notification library
+declares a React 18 peer dependency).
+
+EAS APK (profile `preview`), from `mobile/`: `npx eas-cli login`, `npx eas-cli init`, `npm run eas:apk`.
+Commit and push first (EAS only uploads git-tracked files).
 
 ## API
 | Method | Path | Auth |

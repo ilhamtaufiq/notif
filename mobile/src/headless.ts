@@ -77,7 +77,9 @@ export default async function headlessNotificationListener({
 
   const label = allowedName || appLabel(pkg);
   const subText = raw.subText || raw.summaryText || '';
-  const payment = isGopayApp(pkg, label) ? parsePayment(title, text, subText) : null;
+  const payment = isGopayApp(pkg, label)
+    ? parsePayment(title, text, subText)
+    : null;
   const key = `${pkg}|${postedAt}|${title}|${text.length}`;
   if (payment && cfg.soundEnabled && markSeen(key)) {
     playPaymentSound().catch(() => {}); // don't block queueing on playback

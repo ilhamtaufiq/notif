@@ -19,6 +19,11 @@
         }
       ],
       "./plugins/with-sound-assets"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "39b4eddc-4516-4410-95b4-123230d91f38"
+      }
+    }
   }
 }
