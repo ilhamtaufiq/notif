@@ -87,6 +87,40 @@ export function maybeHeartbeat(now: number = Date.now()): void {
   sendHeartbeat().catch(() => {});
 }
 
+/** Package name the test notification is sent under; the dashboard shows it as its own app. */
+export const TEST_PACKAGE = 'com.notiflistener.test';
+
+/**
+ * Sends one test notification straight to the server (not via the queue), so the user can check that
+ * phone -> server -> dashboard works. Resolves to a message to show the user.
+ */
+export async function sendTestNotification(
+  now: number = Date.now(),
+): Promise<{ ok: boolean; message: string }> {
+  const cfg = await loadConfig();
+  if (!cfg.serverUrl || !cfg.deviceKey) {
+    return { ok: false, message: 'Set the server URL and device key first.' };
+  }
+  const sent = await post(cfg, [
+    {
+      key: `test-${now}`,
+      package: TEST_PACKAGE,
+      app_name: 'Notif test',
+      title: 'Test notification',
+      text: `Sent from the app at ${new Date(now).toLocaleTimeString()}`,
+      sub_text: '',
+      category: '',
+      posted_at: now,
+    },
+  ]);
+  return sent
+    ? { ok: true, message: 'Sent. Check the Log tab on the dashboard.' }
+    : {
+        ok: false,
+        message: 'Not sent. Check the server URL, the device key and the connection.',
+      };
+}
+
 export function enqueue(n: OutgoingNotification): Promise<void> {
   return exclusive(async () => {
     const q = await loadQueue();

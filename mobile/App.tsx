@@ -15,7 +15,13 @@ import RNAndroidNotificationListener from 'react-native-android-notification-lis
 import AppPicker from './src/AppPicker';
 import { loadConfig, updateConfig, type FilterMode } from './src/storage';
 import { playPaymentSound } from './src/sound';
-import { flush, pendingCount, sendHeartbeat, testConnection } from './src/sync';
+import {
+  flush,
+  pendingCount,
+  sendHeartbeat,
+  sendTestNotification,
+  testConnection,
+} from './src/sync';
 
 type Permission = 'unknown' | 'authorized' | 'denied';
 
@@ -99,6 +105,13 @@ export default function App() {
         : 'Nothing sent (queue empty or server unreachable).',
     );
     await refresh();
+    setBusy(false);
+  }
+
+  async function testNotification() {
+    setBusy(true);
+    const result = await sendTestNotification();
+    setStatus(result.message);
     setBusy(false);
   }
 
@@ -250,6 +263,21 @@ export default function App() {
             onPress={() => playPaymentSound()}
           >
             <Text style={s.btnTextDark}>Test sound</Text>
+          </Pressable>
+        </View>
+
+        <View style={s.card}>
+          <Text style={s.h2}>Test notification</Text>
+          <Text style={s.muted}>
+            Sends one test notification to the server to check the whole path.
+            It should appear in the dashboard's Log tab.
+          </Text>
+          <Pressable
+            style={[s.btn, s.secondary, (busy || !serverUrl || !deviceKey) && s.disabled]}
+            disabled={busy || !serverUrl || !deviceKey}
+            onPress={testNotification}
+          >
+            <Text style={s.btnTextDark}>Send test notification</Text>
           </Pressable>
         </View>
 

@@ -37,6 +37,8 @@ The API URL defaults to `http://<current-host>:8080`; override with `PUBLIC_API_
 3. In the app enter `http://<your-pc-lan-ip>:8080` and the device key, tap **Save & test**.
 4. Tap **Open notification access settings** and enable Notif Listener.
 5. Exclude the app from battery optimisation so Android keeps the listener alive.
+6. Tap **Send test notification** in the app. A "Notif test" entry should appear in the dashboard's **Log** tab within seconds.
+   This checks phone -> server -> dashboard without waiting for a real notification.
 
 Notifications are queued on the phone (AsyncStorage) and retried until the server accepts them: on every new notification,
 when the app comes to the foreground, and every minute while the app is open. A queue that is still waiting is shown
