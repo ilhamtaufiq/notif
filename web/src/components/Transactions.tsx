@@ -182,6 +182,7 @@ export default function Transactions() {
             <div className="muted">
               {p.app_name} · {p.title}
               {p.amount == null && ' · nominal tidak terbaca'}
+              {p.invoice_label != null && ` · Tagihan: ${p.invoice_label || 'tanpa keterangan'}`}
             </div>
             {p.text && <div className="body">{p.text}</div>}
           </article>

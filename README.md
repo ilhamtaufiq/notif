@@ -56,6 +56,21 @@ The app is meant to watch **QRIS static** payments received in **GoPay Merchant*
   browser; the **Suara pembayaran** switch turns this on/off (remembered per browser; browsers only allow sound
   after you have clicked on the page once). Matching an expected amount is not implemented yet.
 
+### Invoices tab (QRIS with a locked amount, settled automatically)
+1. **Upload your static QRIS** (a photo/screenshot of the QR on your shop sticker, or paste its text). The browser
+   reads it, checks it is a valid *static* QRIS (CRC) and saves it on the server.
+2. **Create an invoice** (amount, label, validity 5-60 min). The page shows a QR for the same merchant with that
+   amount fixed (static QRIS rewritten as dynamic: initiation 11 -> 12, amount tag 54, new CRC).
+3. If another open invoice already needs the same total, a small **unique code** (+Rp 1..99) is added, so each open
+   invoice has its own exact total and one transfer can settle only one invoice. The payer pays exactly the total shown.
+4. When the phone reports a payment with that exact amount (within the validity window, plus a few minutes of
+   slack), the invoice becomes **LUNAS** and the page plays the voice. The payment in **Transactions** shows
+   "Tagihan: <label>". Fallbacks: **Tandai lunas manual** and **Batalkan**.
+
+Notes: modifying a static QRIS this way is unofficial - test with a small real payment from the e-wallets your
+customers use before relying on it. A payer who ignores the amount and enters something else will not settle the
+invoice (the payment is still recorded as a transaction).
+
 ### Log tab (inspecting the parser)
 The **Log** tab lists *every* notification the phones sent, newest first, each with the parser's verdict:
 **Pembayaran · Rp…** (recognised, with the extracted amount or "nominal tidak terbaca"), **bukan pembayaran**,

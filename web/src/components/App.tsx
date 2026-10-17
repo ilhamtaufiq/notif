@@ -3,11 +3,12 @@ import { api, getToken, setToken, UnauthorizedError, type Device } from '../lib/
 import Login from './Login';
 import Overview from './Overview';
 import Transactions from './Transactions';
+import Invoices from './Invoices';
 import Notifications from './Notifications';
 import Devices from './Devices';
 import '../styles/global.css';
 
-const TABS = ['Transactions', 'Overview', 'Log', 'Devices'] as const;
+const TABS = ['Transactions', 'Invoices', 'Overview', 'Log', 'Devices'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function App() {
@@ -48,6 +49,7 @@ export default function App() {
       </header>
       <main>
         {tab === 'Transactions' && <Transactions />}
+        {tab === 'Invoices' && <Invoices />}
         {tab === 'Overview' && <Overview devices={devices} />}
         {tab === 'Log' && <Notifications devices={devices} />}
         {tab === 'Devices' && <Devices devices={devices} onChange={loadDevices} />}

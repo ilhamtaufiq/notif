@@ -129,6 +129,7 @@ pub async fn ingest(
     let mut tx = st.db.begin().await.map_err(internal)?;
     let mut fresh = Vec::new();
     let mut fresh_payments: Vec<i64> = Vec::new();
+    let mut settled_invoices: Vec<String> = Vec::new();
 
     for n in req.notifications.iter().filter(|n| !n.package.is_empty()) {
         let row = sqlx::query_as::<_, Notification>(
@@ -169,6 +170,14 @@ pub async fn ingest(
                 .map_err(internal)?;
                 if let Some((pid,)) = pid {
                     fresh_payments.push(pid);
+                    if let Some(a) = amount {
+                        if let Some(inv) = settle_invoice(&mut tx, pid, a, row.posted_at)
+                            .await
+                            .map_err(internal)?
+                        {
+                            settled_invoices.push(inv);
+                        }
+                    }
                 }
             }
             fresh.push(row);
@@ -193,7 +202,16 @@ pub async fn ingest(
             .map_err(internal)?;
         let _ = st.payments.send(row);
     }
-    Ok(Json(json!({ "inserted": inserted, "payments": fresh_payments.len() })))
+    for id in &settled_invoices {
+        if let Some(inv) = fetch_invoice(&st, id).await.map_err(internal)? {
+            let _ = st.invoices.send(inv);
+        }
+    }
+    Ok(Json(json!({
+        "inserted": inserted,
+        "payments": fresh_payments.len(),
+        "invoices_paid": settled_invoices.len(),
+    })))
 }
 
 // ---------- queries (dashboard) ----------
@@ -403,14 +421,264 @@ pub async fn stream(
             .and_then(|p| Event::default().event("payment").json_data(p).ok())
             .map(Ok::<Event, Infallible>)
     });
-    Sse::new(notifications.merge(payments)).keep_alive(KeepAlive::default())
+    let invoices = BroadcastStream::new(st.invoices.subscribe()).filter_map(|r| {
+        r.ok()
+            .and_then(|i| Event::default().event("invoice").json_data(i).ok())
+            .map(Ok::<Event, Infallible>)
+    });
+    Sse::new(notifications.merge(payments).merge(invoices)).keep_alive(KeepAlive::default())
+}
+
+// ---------- invoices & QRIS settings ----------
+
+type ApiErr = (StatusCode, Json<Value>);
+
+fn api_err(status: StatusCode, code: &str) -> ApiErr {
+    (status, Json(json!({ "error": code })))
+}
+
+fn internal_err<E: std::fmt::Display>(e: E) -> ApiErr {
+    api_err(internal(e), "internal")
+}
+
+/// A payment may arrive a little before the invoice's clock says it was created (phone/server skew)
+/// and a little after it expired (payer scanned just in time).
+const SKEW_MS: i64 = 120_000;
+const GRACE_MS: i64 = 300_000;
+
+const INVOICE_SELECT: &str = "SELECT id, label, amount, total_amount,
+        (total_amount - amount) AS unique_code,
+        CASE WHEN status = 'open' AND expires_at < ?1 THEN 'expired' ELSE status END AS status,
+        created_at, expires_at, paid_at, payment_id
+     FROM invoices";
+
+async fn fetch_invoice(st: &AppState, id: &str) -> Result<Option<Invoice>, sqlx::Error> {
+    sqlx::query_as::<_, Invoice>(&format!("SELECT * FROM ({INVOICE_SELECT}) WHERE id = ?2"))
+        .bind(now_ms())
+        .bind(id)
+        .fetch_optional(&st.db)
+        .await
+}
+
+/// Settles the oldest open invoice whose exact total equals `amount`. Runs inside the ingest tx.
+async fn settle_invoice(
+    conn: &mut sqlx::SqliteConnection,
+    payment_id: i64,
+    amount: i64,
+    paid_at: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    let found: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM invoices
+         WHERE status = 'open' AND total_amount = ? AND created_at <= ? AND expires_at + ? >= ?
+         ORDER BY created_at ASC LIMIT 1",
+    )
+    .bind(amount)
+    .bind(paid_at + SKEW_MS)
+    .bind(GRACE_MS)
+    .bind(paid_at)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((id,)) = found else { return Ok(None) };
+    let res = sqlx::query(
+        "UPDATE invoices SET status = 'paid', paid_at = ?, payment_id = ? WHERE id = ? AND status = 'open'",
+    )
+    .bind(paid_at)
+    .bind(payment_id)
+    .bind(&id)
+    .execute(&mut *conn)
+    .await?;
+    Ok((res.rows_affected() == 1).then_some(id))
+}
+
+pub async fn create_invoice(
+    _: AuthUser,
+    State(st): State<AppState>,
+    Json(req): Json<CreateInvoiceRequest>,
+) -> Result<(StatusCode, Json<Invoice>), ApiErr> {
+    if !(1..=1_000_000_000).contains(&req.amount) {
+        return Err(api_err(StatusCode::BAD_REQUEST, "invalid_amount"));
+    }
+    let ttl_ms = req.ttl_minutes.unwrap_or(15).clamp(1, 1440) * 60_000;
+    let now = now_ms();
+    let id = uuid::Uuid::new_v4().to_string();
+
+    let mut tx = st.db.begin().await.map_err(internal_err)?;
+    // Pick the first total (amount, amount+1, ...) not used by another still-payable invoice,
+    // so two open invoices can never be settled by the same transfer.
+    let mut total = None;
+    for code in 0..=99 {
+        let candidate = req.amount + code;
+        let taken: Option<(i64,)> = sqlx::query_as(
+            "SELECT 1 FROM invoices WHERE status = 'open' AND total_amount = ? AND expires_at + ? >= ? LIMIT 1",
+        )
+        .bind(candidate)
+        .bind(GRACE_MS)
+        .bind(now)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(internal_err)?;
+        if taken.is_none() {
+            total = Some(candidate);
+            break;
+        }
+    }
+    let Some(total) = total else {
+        return Err(api_err(StatusCode::CONFLICT, "no_free_code"));
+    };
+    sqlx::query(
+        "INSERT INTO invoices (id, label, amount, total_amount, status, created_at, expires_at)
+         VALUES (?, ?, ?, ?, 'open', ?, ?)",
+    )
+    .bind(&id)
+    .bind(clip(req.label.trim(), 100))
+    .bind(req.amount)
+    .bind(total)
+    .bind(now)
+    .bind(now + ttl_ms)
+    .execute(&mut *tx)
+    .await
+    .map_err(internal_err)?;
+    tx.commit().await.map_err(internal_err)?;
+
+    let inv = fetch_invoice(&st, &id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| api_err(StatusCode::INTERNAL_SERVER_ERROR, "internal"))?;
+    Ok((StatusCode::CREATED, Json(inv)))
+}
+
+pub async fn list_invoices(
+    _: AuthUser,
+    State(st): State<AppState>,
+    Query(q): Query<InvoiceQuery>,
+) -> Result<Json<Value>, ApiErr> {
+    let limit = q.limit.unwrap_or(50).clamp(1, 500);
+    let offset = q.offset.unwrap_or(0).max(0);
+    let status = q.status.unwrap_or_default();
+    let now = now_ms();
+
+    let (total,): (i64,) = sqlx::query_as(&format!(
+        "SELECT COUNT(*) FROM ({INVOICE_SELECT}) WHERE (?2 = '' OR status = ?2)"
+    ))
+    .bind(now)
+    .bind(&status)
+    .fetch_one(&st.db)
+    .await
+    .map_err(internal_err)?;
+    let items: Vec<Invoice> = sqlx::query_as(&format!(
+        "SELECT * FROM ({INVOICE_SELECT}) WHERE (?2 = '' OR status = ?2)
+         ORDER BY created_at DESC LIMIT ?3 OFFSET ?4"
+    ))
+    .bind(now)
+    .bind(&status)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&st.db)
+    .await
+    .map_err(internal_err)?;
+    Ok(Json(json!({ "items": items, "total": total })))
+}
+
+/// Closes an open invoice by hand: marks it paid (`paid = true`) or cancels it.
+async fn finish_invoice(st: &AppState, id: &str, paid: bool) -> Result<Json<Invoice>, ApiErr> {
+    let query = if paid {
+        sqlx::query("UPDATE invoices SET status = 'paid', paid_at = ? WHERE id = ? AND status = 'open'")
+            .bind(now_ms())
+            .bind(id)
+    } else {
+        sqlx::query("UPDATE invoices SET status = 'cancelled' WHERE id = ? AND status = 'open'").bind(id)
+    };
+    let res = query.execute(&st.db).await.map_err(internal_err)?;
+    if res.rows_affected() == 0 {
+        // either unknown, or already paid/cancelled
+        return Err(match fetch_invoice(st, id).await.map_err(internal_err)? {
+            Some(_) => api_err(StatusCode::CONFLICT, "not_open"),
+            None => api_err(StatusCode::NOT_FOUND, "not_found"),
+        });
+    }
+    let inv = fetch_invoice(st, id)
+        .await
+        .map_err(internal_err)?
+        .ok_or_else(|| api_err(StatusCode::NOT_FOUND, "not_found"))?;
+    let _ = st.invoices.send(inv.clone());
+    Ok(Json(inv))
+}
+
+pub async fn cancel_invoice(
+    _: AuthUser,
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Invoice>, ApiErr> {
+    finish_invoice(&st, &id, false).await
+}
+
+pub async fn mark_invoice_paid(
+    _: AuthUser,
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Invoice>, ApiErr> {
+    finish_invoice(&st, &id, true).await
+}
+
+fn qris_json(payload: &str) -> Value {
+    match crate::qris::validate_static(payload) {
+        Ok(info) => json!({
+            "configured": true,
+            "payload": payload,
+            "merchant_name": info.merchant_name,
+            "city": info.city,
+        }),
+        // stored before validation rules changed: report as not usable
+        Err(_) => json!({ "configured": false }),
+    }
+}
+
+pub async fn get_qris(_: AuthUser, State(st): State<AppState>) -> Result<Json<Value>, ApiErr> {
+    let row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = 'qris_static'")
+        .fetch_optional(&st.db)
+        .await
+        .map_err(internal_err)?;
+    Ok(Json(match row {
+        Some((payload,)) => qris_json(&payload),
+        None => json!({ "configured": false }),
+    }))
+}
+
+pub async fn put_qris(
+    _: AuthUser,
+    State(st): State<AppState>,
+    Json(req): Json<QrisUpload>,
+) -> Result<Json<Value>, ApiErr> {
+    let payload = req.payload.trim();
+    if let Err(code) = crate::qris::validate_static(payload) {
+        return Err(api_err(StatusCode::BAD_REQUEST, code));
+    }
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ('qris_static', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(payload)
+    .execute(&st.db)
+    .await
+    .map_err(internal_err)?;
+    Ok(Json(qris_json(payload)))
+}
+
+pub async fn delete_qris(_: AuthUser, State(st): State<AppState>) -> Result<StatusCode, ApiErr> {
+    sqlx::query("DELETE FROM settings WHERE key = 'qris_static'")
+        .execute(&st.db)
+        .await
+        .map_err(internal_err)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ---------- payments ----------
 
 const PAYMENT_SELECT: &str = "SELECT p.id, p.notification_id, p.device_id, p.amount, p.paid_at,
-        n.app_name, n.title, n.text
-     FROM payments p JOIN notifications n ON n.id = p.notification_id";
+        n.app_name, n.title, n.text, i.label AS invoice_label
+     FROM payments p
+     JOIN notifications n ON n.id = p.notification_id
+     LEFT JOIN invoices i ON i.payment_id = p.id";
 
 fn push_payment_filters<'a>(qb: &mut QueryBuilder<'a, Sqlite>, q: &'a PaymentQuery) {
     qb.push(" WHERE 1=1");

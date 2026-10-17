@@ -99,6 +99,17 @@ describe('Transactions', () => {
     expect(await screen.findByText(/nominal tidak terbaca/)).toBeInTheDocument();
   });
 
+  it('shows which invoice a payment settled', async () => {
+    mockApi.payments.mockResolvedValue({
+      items: [{ ...pay(4, 37512), invoice_label: 'Budi' }, pay(3, 1000)],
+      total: 2,
+      sum: 38512,
+    });
+    render(<Transactions />);
+    expect(await screen.findByText(/Tagihan: Budi/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Tagihan:/)).toHaveLength(1);
+  });
+
   it('passes the amount filter to the API and resets to the first page', async () => {
     render(<Transactions />);
     await screen.findByText('Rp100.000');

@@ -4,7 +4,7 @@ use axum::{
     Router,
 };
 use http_body_util::BodyExt;
-use notif_listener_backend::{build_router, init_db, AppState, Config};
+use notif_listener_backend::{build_router, init_db, qris, AppState, Config};
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
@@ -80,6 +80,36 @@ impl Ctx {
 
     async fn get(&self, uri: &str) -> (StatusCode, Value) {
         call(&self.app, "GET", uri, &[("authorization", &self.bearer)], None).await
+    }
+
+    async fn send(&self, method: &str, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
+        call(&self.app, method, uri, &[("authorization", &self.bearer)], body).await
+    }
+
+    async fn new_invoice(&self, amount: i64) -> Value {
+        let (status, inv) = self
+            .send("POST", "/api/invoices", Some(json!({"label": "Budi", "amount": amount})))
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{inv}");
+        inv
+    }
+
+    async fn pay(&self, key: &str, amount: i64, posted_at: i64) -> Value {
+        let (_, res) = self
+            .ingest(vec![gopay(key, "Uang masuk", posted_at, Some(json!({ "amount": amount })))])
+            .await;
+        res
+    }
+
+    async fn invoice(&self, id: &str) -> Value {
+        let (_, list) = self.get("/api/invoices?limit=100").await;
+        list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == id)
+            .cloned()
+            .expect("invoice in list")
     }
 
     async fn ingest(&self, notifications: Vec<Value>) -> (StatusCode, Value) {
@@ -224,6 +254,181 @@ async fn payments_can_be_filtered_by_amount_and_time() {
     let from = t - 86_400_000;
     let (_, recent) = ctx.get(&format!("/api/payments?from={from}")).await;
     assert_eq!(recent["total"], 2);
+}
+
+fn static_qris() -> String {
+    qris::build_with_crc(&[
+        ("00", "01"),
+        ("01", "11"),
+        ("26", "0014ID.CO.QRIS.WWW0215ID1234567890123"),
+        ("52", "5812"),
+        ("53", "360"),
+        ("58", "ID"),
+        ("59", "WARUNG CONTOH"),
+        ("60", "CIANJUR"),
+    ])
+}
+
+#[tokio::test]
+async fn qris_upload_is_validated_stored_and_removable() {
+    let ctx = Ctx::new().await;
+    let (_, empty) = ctx.get("/api/settings/qris").await;
+    assert_eq!(empty["configured"], false);
+
+    let (status, bad) = ctx.send("PUT", "/api/settings/qris", Some(json!({"payload": "bukan qris"}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(bad["error"].is_string());
+
+    let dynamic = qris::build_with_crc(&[("00", "01"), ("01", "12"), ("58", "ID"), ("59", "X"), ("60", "Y")]);
+    let (status, err) = ctx.send("PUT", "/api/settings/qris", Some(json!({"payload": dynamic}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(err["error"], "already_dynamic");
+
+    let payload = static_qris();
+    let (status, ok) = ctx.send("PUT", "/api/settings/qris", Some(json!({"payload": payload}))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(ok["merchant_name"], "WARUNG CONTOH");
+
+    let (_, got) = ctx.get("/api/settings/qris").await;
+    assert_eq!(got["configured"], true);
+    assert_eq!(got["payload"], payload.as_str());
+    assert_eq!(got["city"], "CIANJUR");
+
+    let (status, _) = ctx.send("DELETE", "/api/settings/qris", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, gone) = ctx.get("/api/settings/qris").await;
+    assert_eq!(gone["configured"], false);
+}
+
+#[tokio::test]
+async fn invoice_endpoints_require_auth_and_validate_amount() {
+    let ctx = Ctx::new().await;
+    for (m, u) in [("GET", "/api/invoices"), ("POST", "/api/invoices"), ("GET", "/api/settings/qris")] {
+        let (status, _) = call(&ctx.app, m, u, &[], Some(json!({"amount": 1000}))).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{m} {u}");
+    }
+    for bad in [0, -5, 2_000_000_000] {
+        let (status, err) = ctx.send("POST", "/api/invoices", Some(json!({"amount": bad}))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+        assert_eq!(err["error"], "invalid_amount");
+    }
+}
+
+#[tokio::test]
+async fn open_invoices_with_the_same_amount_get_unique_totals() {
+    let ctx = Ctx::new().await;
+    let a = ctx.new_invoice(37500).await;
+    let b = ctx.new_invoice(37500).await;
+    let c = ctx.new_invoice(37500).await;
+    assert_eq!((a["total_amount"].as_i64(), a["unique_code"].as_i64()), (Some(37500), Some(0)));
+    assert_eq!((b["total_amount"].as_i64(), b["unique_code"].as_i64()), (Some(37501), Some(1)));
+    assert_eq!(c["total_amount"], 37502);
+    assert_eq!(a["status"], "open");
+    assert_eq!(a["amount"], 37500);
+    // a cancelled invoice frees its total again
+    ctx.send("POST", &format!("/api/invoices/{}/cancel", a["id"].as_str().unwrap()), None).await;
+    let d = ctx.new_invoice(37500).await;
+    assert_eq!(d["total_amount"], 37500);
+}
+
+#[tokio::test]
+async fn matching_payment_settles_the_invoice_and_links_it() {
+    let ctx = Ctx::new().await;
+    let inv = ctx.new_invoice(25000).await;
+    let id = inv["id"].as_str().unwrap();
+
+    let res = ctx.pay("p1", 25000, now_ms()).await;
+    assert_eq!(res["payments"], 1);
+    assert_eq!(res["invoices_paid"], 1);
+
+    let after = ctx.invoice(id).await;
+    assert_eq!(after["status"], "paid");
+    assert!(after["payment_id"].is_i64());
+    assert!(after["paid_at"].is_i64());
+
+    let (_, payments) = ctx.get("/api/payments").await;
+    assert_eq!(payments["items"][0]["invoice_label"], "Budi");
+    let (_, only_paid) = ctx.get("/api/invoices?status=paid").await;
+    assert_eq!(only_paid["total"], 1);
+    let (_, only_open) = ctx.get("/api/invoices?status=open").await;
+    assert_eq!(only_open["total"], 0);
+}
+
+#[tokio::test]
+async fn other_amounts_and_resent_notifications_do_not_settle_wrongly() {
+    let ctx = Ctx::new().await;
+    let inv = ctx.new_invoice(25000).await;
+    let id = inv["id"].as_str().unwrap();
+
+    let res = ctx.pay("wrong", 24000, now_ms()).await;
+    assert_eq!(res["payments"], 1);
+    assert_eq!(res["invoices_paid"], 0);
+    assert_eq!(ctx.invoice(id).await["status"], "open");
+
+    // a payment without an amount can never settle anything
+    ctx.ingest(vec![gopay("noamt", "Uang masuk", now_ms(), Some(json!({})))]).await;
+    assert_eq!(ctx.invoice(id).await["status"], "open");
+
+    // the same notification delivered twice settles only once
+    let first = ctx.pay("dup", 25000, now_ms()).await;
+    let again = ctx.pay("dup", 25000, now_ms()).await;
+    assert_eq!(first["invoices_paid"], 1);
+    assert_eq!(again["invoices_paid"], 0);
+}
+
+#[tokio::test]
+async fn same_amount_invoices_are_settled_by_their_own_totals_in_order() {
+    let ctx = Ctx::new().await;
+    let a = ctx.new_invoice(50000).await; // total 50000
+    let b = ctx.new_invoice(50000).await; // total 50001
+    ctx.pay("pb", 50001, now_ms()).await;
+    assert_eq!(ctx.invoice(a["id"].as_str().unwrap()).await["status"], "open");
+    assert_eq!(ctx.invoice(b["id"].as_str().unwrap()).await["status"], "paid");
+    ctx.pay("pa", 50000, now_ms() + 1).await;
+    assert_eq!(ctx.invoice(a["id"].as_str().unwrap()).await["status"], "paid");
+}
+
+#[tokio::test]
+async fn payments_outside_the_invoice_time_window_do_not_settle() {
+    let ctx = Ctx::new().await;
+    let inv = ctx.new_invoice(10000).await;
+    let id = inv["id"].as_str().unwrap();
+    // long before the invoice existed
+    ctx.pay("early", 10000, now_ms() - 3_600_000).await;
+    // well after it expired (default 15 min + 5 min grace)
+    ctx.pay("late", 10000, now_ms() + 3_600_000).await;
+    assert_eq!(ctx.invoice(id).await["status"], "open");
+    // inside the window still works
+    let res = ctx.pay("ontime", 10000, now_ms() + 60_000).await;
+    assert_eq!(res["invoices_paid"], 1);
+}
+
+#[tokio::test]
+async fn cancel_and_manual_paid_follow_the_invoice_state() {
+    let ctx = Ctx::new().await;
+    let inv = ctx.new_invoice(12000).await;
+    let id = inv["id"].as_str().unwrap();
+
+    let (status, cancelled) = ctx.send("POST", &format!("/api/invoices/{id}/cancel"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(cancelled["status"], "cancelled");
+    // a cancelled invoice is not settled by a matching payment
+    ctx.pay("c1", 12000, now_ms()).await;
+    assert_eq!(ctx.invoice(id).await["status"], "cancelled");
+    // can't cancel or pay it again
+    let (s1, e1) = ctx.send("POST", &format!("/api/invoices/{id}/cancel"), None).await;
+    let (s2, _) = ctx.send("POST", &format!("/api/invoices/{id}/paid"), None).await;
+    assert_eq!((s1, s2), (StatusCode::CONFLICT, StatusCode::CONFLICT));
+    assert_eq!(e1["error"], "not_open");
+    let (s3, _) = ctx.send("POST", "/api/invoices/nope/cancel", None).await;
+    assert_eq!(s3, StatusCode::NOT_FOUND);
+
+    let other = ctx.new_invoice(15000).await;
+    let oid = other["id"].as_str().unwrap();
+    let (status, paid) = ctx.send("POST", &format!("/api/invoices/{oid}/paid"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(paid["status"], "paid");
+    assert!(paid["payment_id"].is_null(), "manual payment has no linked payment");
 }
 
 #[tokio::test]

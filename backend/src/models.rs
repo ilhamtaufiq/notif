@@ -72,6 +72,46 @@ pub struct Payment {
     pub app_name: String,
     pub title: String,
     pub text: String,
+    /// Label of the invoice this payment settled, if any.
+    pub invoice_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct Invoice {
+    pub id: String,
+    pub label: String,
+    /// What the seller asked for.
+    pub amount: i64,
+    /// What the payer must transfer: `amount` plus a small unique code.
+    pub total_amount: i64,
+    pub unique_code: i64,
+    /// open | paid | cancelled | expired (derived from `expires_at`).
+    pub status: String,
+    pub created_at: i64,
+    pub expires_at: i64,
+    pub paid_at: Option<i64>,
+    /// None on a paid invoice means it was marked paid manually.
+    pub payment_id: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateInvoiceRequest {
+    #[serde(default)]
+    pub label: String,
+    pub amount: i64,
+    pub ttl_minutes: Option<i64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct InvoiceQuery {
+    pub status: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct QrisUpload {
+    pub payload: String,
 }
 
 #[derive(Debug, Default, Deserialize)]

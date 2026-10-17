@@ -64,6 +64,8 @@ export interface Payment {
   app_name: string;
   title: string;
   text: string;
+  /** Label of the invoice this payment settled, if any. */
+  invoice_label?: string | null;
 }
 
 export interface PaymentTotal {
@@ -78,7 +80,40 @@ export interface PaymentSummary {
   by_day: { day_start: number; count: number; sum: number }[];
 }
 
+export interface Invoice {
+  id: string;
+  label: string;
+  /** What the seller asked for. */
+  amount: number;
+  /** What the payer must transfer: amount plus a small unique code. */
+  total_amount: number;
+  unique_code: number;
+  status: 'open' | 'paid' | 'cancelled' | 'expired';
+  created_at: number;
+  expires_at: number;
+  paid_at: number | null;
+  /** null on a paid invoice = marked paid manually. */
+  payment_id: number | null;
+}
+
+export interface QrisSetting {
+  configured: boolean;
+  payload?: string;
+  merchant_name?: string;
+  city?: string;
+}
+
 export class UnauthorizedError extends Error {}
+
+/** Non-2xx API response; `code` is the backend's `{"error": code}` when present. */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+  ) {
+    super(`HTTP ${status}`);
+  }
+}
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API}${path}`, {
@@ -90,7 +125,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
   if (res.status === 401) throw new UnauthorizedError('unauthorized');
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    let code = '';
+    try {
+      code = (await res.json()).error ?? '';
+    } catch {
+      /* body is not JSON */
+    }
+    throw new ApiError(res.status, code);
+  }
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
@@ -141,6 +184,16 @@ export const api = {
     request<PaymentSummary>(
       `/api/payments/summary${qs({ days, tz_offset: -new Date().getTimezoneOffset() })}`,
     ),
+  invoices: (p: { status?: string; limit?: number; offset?: number } = {}) =>
+    request<{ items: Invoice[]; total: number }>(`/api/invoices${qs(p)}`),
+  createInvoice: (b: { label?: string; amount: number; ttl_minutes?: number }) =>
+    request<Invoice>('/api/invoices', { method: 'POST', body: JSON.stringify(b) }),
+  cancelInvoice: (id: string) => request<Invoice>(`/api/invoices/${id}/cancel`, { method: 'POST' }),
+  markInvoicePaid: (id: string) => request<Invoice>(`/api/invoices/${id}/paid`, { method: 'POST' }),
+  qris: () => request<QrisSetting>('/api/settings/qris'),
+  saveQris: (payload: string) =>
+    request<QrisSetting>('/api/settings/qris', { method: 'PUT', body: JSON.stringify({ payload }) }),
+  deleteQris: () => request<void>('/api/settings/qris', { method: 'DELETE' }),
   streamUrl: () => `${API}/api/stream?token=${encodeURIComponent(getToken() ?? '')}`,
 };
 
