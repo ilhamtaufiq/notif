@@ -19,7 +19,8 @@
           }
         }
       ],
-      "./plugins/with-sound-assets"
+      "./plugins/with-sound-assets",
+      "expo-notifications"
     ],
     "extra": {
       "eas": {

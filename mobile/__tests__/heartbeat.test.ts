@@ -5,6 +5,7 @@
 const flushPromises = () =>
   new Promise<void>(resolve => setTimeout(resolve, 0));
 
+jest.mock('../src/localNotify', () => ({ showLocalNotification: jest.fn().mockResolvedValue(true) }));
 jest.mock('../src/storage', () => ({
   loadConfig: jest.fn(),
   loadQueue: jest.fn(),

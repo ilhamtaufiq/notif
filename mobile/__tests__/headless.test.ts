@@ -3,6 +3,7 @@ import { loadConfig } from '../src/storage';
 import { enqueue, flush, maybeHeartbeat } from '../src/sync';
 import { playPaymentSound } from '../src/sound';
 
+jest.mock('../src/localNotify', () => ({ showLocalNotification: jest.fn().mockResolvedValue(true) }));
 jest.mock('../src/storage', () => ({ loadConfig: jest.fn() }));
 jest.mock('../src/sync', () => ({
   enqueue: jest.fn().mockResolvedValue(undefined),

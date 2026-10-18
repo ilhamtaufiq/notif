@@ -1,3 +1,4 @@
+import { showLocalNotification } from './localNotify';
 import {
   loadConfig,
   loadQueue,
@@ -101,24 +102,41 @@ export async function sendTestNotification(
   if (!cfg.serverUrl || !cfg.deviceKey) {
     return { ok: false, message: 'Set the server URL and device key first.' };
   }
+  const text = `Sent from the app at ${new Date(now).toLocaleTimeString()}`;
+  // 1) show it in the status bar on this phone
+  const shown = await showLocalNotification('Test notification', text).catch(
+    () => false,
+  );
+  // 2) send it to the server, which is what the dashboard's Log tab shows
   const sent = await post(cfg, [
     {
       key: `test-${now}`,
       package: TEST_PACKAGE,
       app_name: 'Notif test',
       title: 'Test notification',
-      text: `Sent from the app at ${new Date(now).toLocaleTimeString()}`,
+      text,
       sub_text: '',
       category: '',
       posted_at: now,
     },
   ]);
-  return sent
-    ? { ok: true, message: 'Sent. Check the Log tab on the dashboard.' }
-    : {
-        ok: false,
-        message: 'Not sent. Check the server URL, the device key and the connection.',
-      };
+  if (sent && shown)
+    return {
+      ok: true,
+      message: 'Muncul di status bar dan terkirim ke server. Cek tab Log.',
+    };
+  if (sent) {
+    return {
+      ok: true,
+      message:
+        'Terkirim ke server (cek tab Log), tapi notifikasi di HP tidak tampil. Izinkan notifikasi untuk app ini di pengaturan HP.',
+    };
+  }
+  return {
+    ok: false,
+    message:
+      'Tidak terkirim ke server. Cek URL server, device key, dan koneksi.',
+  };
 }
 
 export function enqueue(n: OutgoingNotification): Promise<void> {

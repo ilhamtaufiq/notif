@@ -3,6 +3,7 @@
  */
 export {};
 
+jest.mock('../src/localNotify', () => ({ showLocalNotification: jest.fn().mockResolvedValue(true) }));
 jest.mock('../src/storage', () => ({
   loadConfig: jest.fn(),
   loadQueue: jest.fn(),
@@ -56,7 +57,7 @@ describe('sendTestNotification', () => {
     fetchMock.mockRejectedValue(new Error('network down'));
     const result = await sendTestNotification();
     expect(result.ok).toBe(false);
-    expect(result.message).toMatch(/Not sent/);
+    expect(result.message).toMatch(/Tidak terkirim ke server/);
   });
 
   it('asks for the connection settings when they are missing', async () => {
