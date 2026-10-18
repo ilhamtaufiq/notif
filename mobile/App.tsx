@@ -15,9 +15,18 @@ import RNAndroidNotificationListener from 'react-native-android-notification-lis
 import AppPicker from './src/AppPicker';
 import { loadConfig, updateConfig, type FilterMode } from './src/storage';
 import { playPaymentSound } from './src/sound';
-import { flush, pendingCount, sendHeartbeat, testConnection } from './src/sync';
+import {
+  flush,
+  pendingCount,
+  sendHeartbeat,
+  sendTestNotification,
+  testConnection,
+} from './src/sync';
 
 type Permission = 'unknown' | 'authorized' | 'denied';
+
+// How often queued notifications are retried while the app is open.
+const QUEUE_RETRY_MS = 60_000;
 
 export default function App() {
   const [serverUrl, setServerUrl] = useState('');
@@ -36,6 +45,12 @@ export default function App() {
     setPending(await pendingCount());
   }, []);
 
+  // Sends whatever is queued, then refreshes the screen. flush() is serialised, so overlapping calls are safe.
+  const syncQueue = useCallback(async () => {
+    await flush().catch(() => 0);
+    await refresh();
+  }, [refresh]);
+
   useEffect(() => {
     loadConfig().then(c => {
       setServerUrl(c.serverUrl);
@@ -44,17 +59,22 @@ export default function App() {
       setAllowedApps(c.allowedApps);
       setSoundEnabled(c.soundEnabled);
     });
-    refresh();
+    syncQueue();
     sendHeartbeat().catch(() => {});
+    // Notifications queued while the server was unreachable are retried here, not only when a new one arrives.
+    const timer = setInterval(syncQueue, QUEUE_RETRY_MS);
     // The user comes back from the system settings screen / a notification arrived meanwhile.
     const sub = AppState.addEventListener('change', s => {
       if (s === 'active') {
-        refresh();
+        syncQueue();
         sendHeartbeat().catch(() => {});
       }
     });
-    return () => sub.remove();
-  }, [refresh]);
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, [syncQueue]);
 
   async function saveAndTest() {
     setBusy(true);
@@ -85,6 +105,13 @@ export default function App() {
         : 'Nothing sent (queue empty or server unreachable).',
     );
     await refresh();
+    setBusy(false);
+  }
+
+  async function testNotification() {
+    setBusy(true);
+    const result = await sendTestNotification();
+    setStatus(result.message);
     setBusy(false);
   }
 
@@ -236,6 +263,21 @@ export default function App() {
             onPress={() => playPaymentSound()}
           >
             <Text style={s.btnTextDark}>Test sound</Text>
+          </Pressable>
+        </View>
+
+        <View style={s.card}>
+          <Text style={s.h2}>Test notification</Text>
+          <Text style={s.muted}>
+            Sends one test notification to the server to check the whole path.
+            It should appear in the dashboard's Log tab.
+          </Text>
+          <Pressable
+            style={[s.btn, s.secondary, (busy || !serverUrl || !deviceKey) && s.disabled]}
+            disabled={busy || !serverUrl || !deviceKey}
+            onPress={testNotification}
+          >
+            <Text style={s.btnTextDark}>Send test notification</Text>
           </Pressable>
         </View>
 

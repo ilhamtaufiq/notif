@@ -37,8 +37,12 @@ The API URL defaults to `http://<current-host>:8080`; override with `PUBLIC_API_
 3. In the app enter `http://<your-pc-lan-ip>:8080` and the device key, tap **Save & test**.
 4. Tap **Open notification access settings** and enable Notif Listener.
 5. Exclude the app from battery optimisation so Android keeps the listener alive.
+6. Tap **Send test notification** in the app. A "Notif test" entry should appear in the dashboard's **Log** tab within seconds.
+   This checks phone -> server -> dashboard without waiting for a real notification.
 
-Notifications are queued on the phone (AsyncStorage) and retried until the server accepts them.
+Notifications are queued on the phone (AsyncStorage) and retried until the server accepts them: on every new notification,
+when the app comes to the foreground, and every minute while the app is open. A queue that is still waiting is shown
+as "notifications waiting to be sent" in the app.
 
 ### Which apps are captured
 In the app, section **3. Apps to capture**: choose **All apps**, or **Selected apps** and pick from the
@@ -90,7 +94,9 @@ or an amber **GoPay · tidak dikenali sebagai pembayaran** for GoPay-app notific
 Search covers title, text, sub text, app and package; filter by parser result, app and device; **Raw** shows the
 stored JSON; **Salin JSON halaman ini** copies the page so you can paste real samples when tuning
 `mobile/src/payment.ts`; **Cek GoPay yang terlewat** jumps straight to GoPay notifications that were not
-counted as payments. New notifications appear live.
+counted as payments. New notifications appear live while the Log tab is open; while another tab is open the
+**Log** tab button shows how many new notifications arrived (e.g. "Log (3 baru)"), and the count clears when you open it.
+The Transactions tab only shows payments live.
 Only notifications the phone actually sent are logged: ones dropped by the phone's app filter never reach the
 server, and the text shown is what the parser saw (big text if present, else the normal text).
 
