@@ -60,6 +60,12 @@ The app is meant to watch **QRIS static** payments received in **GoPay Merchant*
   browser; the **Suara pembayaran** switch turns this on/off (remembered per browser; browsers only allow sound
   after you have clicked on the page once). Matching an expected amount is not implemented yet.
 
+### Why a notification is missing (app diagnostics)
+The phone's main screen shows counters since the last reset: **Ditangkap** (captured and queued),
+**Dilewati filter** (dropped by "Apps to capture" in Selected mode, with the app name), **Kosong** (no title and no
+text), and **Terkirim** (accepted by the server). If a notification is missing from the Log tab, check which bucket it
+fell into. "Dilewati filter" means the app is not selected; "Kosong" means the notification had no text to store.
+
 ### Listener health (is the phone still listening?)
 Payments are only seen while the phone's listener is running, so the dashboard shows a banner on every tab and a
 status chip per device (Devices tab):

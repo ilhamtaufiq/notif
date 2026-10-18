@@ -1,6 +1,7 @@
 import { loadConfig } from './storage';
 import { isGopayApp, parsePayment } from './payment';
 import { playPaymentSound } from './sound';
+import { recordOutcome } from './stats';
 import { enqueue, flush, maybeHeartbeat } from './sync';
 
 // Package of this app; its own foreground notifications would just be noise.
@@ -69,16 +70,24 @@ export default async function headlessNotificationListener({
 
   const cfg = await loadConfig();
   const allowedName = cfg.allowedApps[pkg];
-  if (cfg.filterMode === 'selected' && allowedName === undefined) return;
-
-  const title = raw.title ?? '';
-  const text = raw.bigText || raw.text || '';
-  if (!title && !text) return; // group summaries etc. carry nothing useful
-
   const parsed = Number(raw.time);
   const postedAt = Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now();
 
+  if (cfg.filterMode === 'selected' && allowedName === undefined) {
+    await recordOutcome('filtered', pkg, postedAt);
+    return;
+  }
+
+  const title = raw.title ?? '';
+  const text = raw.bigText || raw.text || '';
+  if (!title && !text) {
+    // group summaries etc. carry nothing useful
+    await recordOutcome('empty', pkg, postedAt);
+    return;
+  }
+
   const label = allowedName || appLabel(pkg);
+  await recordOutcome('captured', pkg, postedAt);
   const subText = raw.subText || raw.summaryText || '';
   const payment = isGopayApp(pkg, label)
     ? parsePayment(title, text, subText)

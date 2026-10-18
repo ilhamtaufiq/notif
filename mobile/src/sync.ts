@@ -1,4 +1,5 @@
 import { showLocalNotification } from './localNotify';
+import { recordSent } from './stats';
 import {
   loadConfig,
   loadQueue,
@@ -161,6 +162,7 @@ export function flush(): Promise<number> {
       q = q.slice(batch.length);
       await saveQueue(q);
     }
+    await recordSent(sent);
     return sent;
   });
 }

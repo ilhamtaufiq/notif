@@ -14,6 +14,7 @@ import {
 import RNAndroidNotificationListener from 'react-native-android-notification-listener';
 import AppPicker from './src/AppPicker';
 import { loadConfig, updateConfig, type FilterMode } from './src/storage';
+import { loadStats, resetStats, type Seen, type Stats } from './src/stats';
 import { playPaymentSound } from './src/sound';
 import {
   flush,
@@ -24,6 +25,17 @@ import {
 } from './src/sync';
 
 type Permission = 'unknown' | 'authorized' | 'denied';
+
+/** "WhatsApp, 14:05:31" for the last notification of a kind, or "belum ada". */
+function describe(seen: Seen | null): string {
+  if (!seen) return 'belum ada';
+  const time = new Date(seen.at).toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  return `${seen.app}, ${time}`;
+}
 
 // How often queued notifications are retried while the app is open.
 const QUEUE_RETRY_MS = 60_000;
@@ -40,9 +52,12 @@ export default function App() {
   const [picking, setPicking] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
 
+  const [diag, setDiag] = useState<Stats | null>(null);
+
   const refresh = useCallback(async () => {
     setPermission(await RNAndroidNotificationListener.getPermissionStatus());
     setPending(await pendingCount());
+    setDiag(await loadStats());
   }, []);
 
   // Sends whatever is queued, then refreshes the screen. flush() is serialised, so overlapping calls are safe.
@@ -273,12 +288,82 @@ export default function App() {
             It should appear in the dashboard's Log tab.
           </Text>
           <Pressable
-            style={[s.btn, s.secondary, (busy || !serverUrl || !deviceKey) && s.disabled]}
+            style={[
+              s.btn,
+              s.secondary,
+              (busy || !serverUrl || !deviceKey) && s.disabled,
+            ]}
             disabled={busy || !serverUrl || !deviceKey}
             onPress={testNotification}
           >
             <Text style={s.btnTextDark}>Send test notification</Text>
           </Pressable>
+        </View>
+
+        <View style={s.card}>
+          <Text style={s.h2}>Diagnosa notifikasi</Text>
+          {diag && (
+            <>
+              <Text style={s.body}>
+                Ditangkap: {diag.captured} · Dilewati filter: {diag.filtered} ·
+                Kosong: {diag.empty} · Terkirim: {diag.sent}
+              </Text>
+              <Text style={s.muted}>
+                Terakhir ditangkap: {describe(diag.lastCaptured)}
+              </Text>
+              <Text style={s.muted}>
+                Terakhir dilewati filter: {describe(diag.lastFiltered)}
+                {diag.lastFiltered
+                  ? ' (buka "Apps to capture" dan centang aplikasi ini, atau pilih All apps)'
+                  : ''}
+              </Text>
+              <Text style={s.muted}>
+                Terakhir kosong (tanpa judul/teks): {describe(diag.lastEmpty)}
+              </Text>
+              <Pressable
+                style={[s.btn, s.secondary]}
+                onPress={async () => {
+                  await resetStats();
+                  await refresh();
+                }}
+              >
+                <Text style={s.btnTextDark}>Reset hitungan</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+
+        <View style={s.card}>
+          <Text style={s.h2}>Diagnosa notifikasi</Text>
+          {diag && (
+            <>
+              <Text style={s.body}>
+                Ditangkap: {diag.captured} · Dilewati filter: {diag.filtered} ·
+                Kosong: {diag.empty} · Terkirim: {diag.sent}
+              </Text>
+              <Text style={s.muted}>
+                Terakhir ditangkap: {describe(diag.lastCaptured)}
+              </Text>
+              <Text style={s.muted}>
+                Terakhir dilewati filter: {describe(diag.lastFiltered)}
+                {diag.lastFiltered
+                  ? ' (centang aplikasi ini di "Apps to capture", atau pilih All apps)'
+                  : ''}
+              </Text>
+              <Text style={s.muted}>
+                Terakhir kosong (tanpa judul/teks): {describe(diag.lastEmpty)}
+              </Text>
+              <Pressable
+                style={[s.btn, s.secondary]}
+                onPress={async () => {
+                  await resetStats();
+                  await refresh();
+                }}
+              >
+                <Text style={s.btnTextDark}>Reset hitungan</Text>
+              </Pressable>
+            </>
+          )}
         </View>
 
         <View style={s.card}>

@@ -3,6 +3,7 @@
  */
 export {};
 
+jest.mock('../src/stats', () => ({ recordOutcome: jest.fn().mockResolvedValue(undefined), recordSent: jest.fn().mockResolvedValue(undefined), loadStats: jest.fn(), resetStats: jest.fn() }));
 jest.mock('../src/localNotify', () => ({ showLocalNotification: jest.fn().mockResolvedValue(true) }));
 jest.mock('../src/storage', () => ({
   loadConfig: jest.fn(),

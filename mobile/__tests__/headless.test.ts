@@ -3,6 +3,7 @@ import { loadConfig } from '../src/storage';
 import { enqueue, flush, maybeHeartbeat } from '../src/sync';
 import { playPaymentSound } from '../src/sound';
 
+jest.mock('../src/stats', () => ({ recordOutcome: jest.fn().mockResolvedValue(undefined), recordSent: jest.fn().mockResolvedValue(undefined), loadStats: jest.fn(), resetStats: jest.fn() }));
 jest.mock('../src/localNotify', () => ({ showLocalNotification: jest.fn().mockResolvedValue(true) }));
 jest.mock('../src/storage', () => ({ loadConfig: jest.fn() }));
 jest.mock('../src/sync', () => ({
