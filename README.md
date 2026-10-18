@@ -159,6 +159,22 @@ Expo SDK 58 (`:expo ... compileSdk` / `expo-module-gradle-plugin not found`), so
 declares a React 18 peer dependency).
 
 EAS APK (profile `preview`), from `mobile/`: `npx eas-cli login`, `npx eas-cli init`, `npm run eas:apk`.
+
+### OTA updates (JavaScript changes without a new APK)
+From `mobile/`, after committing your changes:
+```bash
+npm run ota -- "perbaiki parser GoPay"      # channel preview (the APK built with eas:apk)
+npm run ota:prod -- "rilis v1.2"             # channel production
+```
+Phones pick the update up the next time the app starts (`checkAutomatically: ON_LOAD`), and it applies on the next launch.
+- Works for changes in JavaScript/TypeScript and assets that are already in the APK (screens, parser, texts, the sound
+  file if its name is unchanged).
+- **Does not** work for native changes: new packages with native code, permissions, `app.json` plugins, `android/`.
+  Those need a new APK (`npm run eas:apk`). The update is only delivered to builds with the same `runtimeVersion`,
+  which is the app version (`version` in `app.json`). Bump `version` when you change native code, so old APKs never get
+  an update that expects new native code.
+- The script refuses to publish while `mobile/` has uncommitted changes (override with `OTA_ALLOW_DIRTY=1`), so every
+  update matches a commit. Only use it for builds you published yourself.
 Commit and push first (EAS only uploads git-tracked files).
 
 ## API

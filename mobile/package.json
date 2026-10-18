@@ -11,13 +11,18 @@
     "expo:prebuild": "expo prebuild --platform android --clean",
     "expo:run": "expo run:android",
     "eas:apk": "eas build --platform android --profile preview",
-    "eas:local": "eas build --platform android --profile preview --local"
+    "eas:local": "eas build --platform android --profile preview --local",
+    "ota:preview": "eas update --channel preview --platform android --message",
+    "ota:production": "eas update --channel production --platform android --message",
+    "ota": "node scripts/ota.js preview",
+    "ota:prod": "node scripts/ota.js production"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native/new-app-screen": "0.88.0",
     "expo": "~58.0.14",
     "expo-build-properties": "~58.0.11",
+    "expo-updates": "~58.0.17",
     "react": "19.3.0",
     "react-native": "0.88.0",
     "react-native-android-notification-listener": "^5.0.1",
